@@ -5159,6 +5159,9 @@ mysql_execute_command(THD *thd, bool is_called_from_prepared_stmt)
                           &lex->name))
       break;
 
+    if ((res= lex->create_info.resolve_db_charset_and_collation(thd, false)))
+      break;
+
     WSREP_TO_ISOLATION_BEGIN(lex->name.str, NULL, NULL);
 
     res= mysql_create_db(thd, &lex->name,
@@ -5218,6 +5221,9 @@ mysql_execute_command(THD *thd, bool is_called_from_prepared_stmt)
   {
     LEX_CSTRING *db= &lex->name;
     if (prepare_db_action(thd, ALTER_ACL, db))
+      break;
+
+    if ((res= lex->create_info.resolve_db_charset_and_collation(thd, true)))
       break;
 
     WSREP_TO_ISOLATION_BEGIN(db->str, NULL, NULL);

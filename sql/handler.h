@@ -2344,33 +2344,6 @@ struct HA_CREATE_INFO: public Table_scope_and_contents_source_st,
     Schema_specification_st::init();
     alter_info= NULL;
   }
-  bool check_conflicting_charset_declarations(CHARSET_INFO *cs);
-  bool add_table_option_default_charset(CHARSET_INFO *cs)
-  {
-    // cs can be NULL, e.g.:  CREATE TABLE t1 (..) CHARACTER SET DEFAULT;
-    if (check_conflicting_charset_declarations(cs))
-      return true;
-    default_table_charset= cs;
-    used_fields|= HA_CREATE_USED_DEFAULT_CHARSET;
-    return false;
-  }
-  bool add_alter_list_item_convert_to_charset(CHARSET_INFO *cs)
-  {
-    /* 
-      cs cannot be NULL, as sql_yacc.yy translates
-         CONVERT TO CHARACTER SET DEFAULT
-      to
-         CONVERT TO CHARACTER SET <character-set-of-the-current-database>
-      TODO: Shouldn't we postpone resolution of DEFAULT until the
-      character set of the table owner database is loaded from its db.opt?
-    */
-    DBUG_ASSERT(cs);
-    if (check_conflicting_charset_declarations(cs))
-      return true;
-    alter_table_convert_to_charset= default_table_charset= cs;
-    used_fields|= (HA_CREATE_USED_CHARSET | HA_CREATE_USED_DEFAULT_CHARSET);  
-    return false;
-  }
   ulong table_options_with_row_type()
   {
     if (row_type == ROW_TYPE_DYNAMIC || row_type == ROW_TYPE_PAGE)
@@ -2388,16 +2361,20 @@ struct HA_CREATE_INFO: public Table_scope_and_contents_source_st,
 struct Table_specification_st: public HA_CREATE_INFO,
                                public DDL_options_st
 {
+  Lex_collation_st default_collation;
+
   // Deep initialization
   void init()
   {
     HA_CREATE_INFO::init();
     DDL_options_st::init();
+    default_collation.init();
   }
   void init(DDL_options_st::Options options_arg)
   {
     HA_CREATE_INFO::init();
     DDL_options_st::init(options_arg);
+    default_collation.init();
   }
   /*
     Quick initialization, for parser.
@@ -2409,7 +2386,32 @@ struct Table_specification_st: public HA_CREATE_INFO,
   {
     HA_CREATE_INFO::options= 0;
     DDL_options_st::init();
+    default_collation.init();
   }
+
+  bool add_alter_list_item_convert_to_charset(const Lex_collation_st &cl)
+  {
+    /*
+      cs cannot be NULL, as sql_yacc.yy translates
+         CONVERT TO CHARACTER SET DEFAULT
+      to
+         CONVERT TO CHARACTER SET <character-set-of-the-current-database>
+      TODO: Shouldn't we postpone resolution of DEFAULT until the
+      character set of the table owner database is loaded from its db.opt?
+    */
+    DBUG_ASSERT(cl.collation());
+    DBUG_ASSERT(!cl.is_contextually_typed_collation());
+    alter_table_convert_to_charset= cl.collation();
+    default_collation= cl;
+    used_fields|= (HA_CREATE_USED_CHARSET | HA_CREATE_USED_DEFAULT_CHARSET);
+    return false;
+  }
+  bool add_table_option_default_charset(CHARSET_INFO *cs);
+  bool add_table_option_default_collation(const Lex_collation_st &cl);
+  bool resolve_table_charset_and_collation(THD *thd,
+                                           const LEX_CSTRING &db,
+                                           bool is_alter);
+  bool resolve_db_charset_and_collation(THD *thd, bool is_alter);
 };
 
 

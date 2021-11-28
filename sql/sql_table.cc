@@ -12044,6 +12044,12 @@ bool Sql_cmd_create_table_like::execute(THD *thd)
 
   const bool used_engine= lex->create_info.used_fields & HA_CREATE_USED_ENGINE;
   DBUG_ASSERT((m_storage_engine_name.str != NULL) == used_engine);
+
+  if (lex->create_info.resolve_table_charset_and_collation(thd,
+                                                           first_table->db,
+                                                           false))
+    DBUG_RETURN(true);
+
   if (used_engine)
   {
     if (resolve_storage_engine_with_error(thd, &lex->create_info.db_type,
@@ -12353,4 +12359,135 @@ bool Sql_cmd_create_table_like::execute(THD *thd)
 
 end_with_restore_list:
   DBUG_RETURN(res);
+}
+
+
+bool Table_specification_st::add_table_option_default_charset(CHARSET_INFO *cs)
+{
+  // cs can be NULL, e.g.:  CREATE TABLE t1 (..) CHARACTER SET DEFAULT;
+  bool first_time= !(used_fields & HA_CREATE_USED_DEFAULT_CHARSET);
+  used_fields|= HA_CREATE_USED_DEFAULT_CHARSET;
+  return default_collation.merge_unordered_charset_clause(cs, first_time);
+}
+
+
+bool Table_specification_st::
+       add_table_option_default_collation(const Lex_collation_st &cl)
+{
+  used_fields|= HA_CREATE_USED_DEFAULT_CHARSET;
+  return default_collation.merge_unordered_collate_clause(cl);
+}
+
+
+/*
+  Initialize the "default_table_charset" member
+  from the "default_collation" member
+  for CREATE/ALTER TABLE statements.
+*/
+bool
+Table_specification_st::resolve_table_charset_and_collation(THD *thd,
+                                                         const LEX_CSTRING &db,
+                                                         bool is_alter)
+{
+  DBUG_ASSERT(!default_table_charset);
+
+  if (!default_collation.collation() &&
+      (used_fields & HA_CREATE_USED_DEFAULT_CHARSET))
+  {
+    // CHARACTER SET DEFAULT
+    CHARSET_INFO *cs;
+    Schema_specification_st dbinfo;
+    dbinfo.init();
+    load_db_opt_by_name(thd, db.str, &dbinfo);
+    if (!(cs= dbinfo.default_table_charset))
+      cs= thd->variables.collation_database;
+    Lex_collation_st tmp;
+    tmp.set_charset_collate_default(cs);
+    default_table_charset= tmp.collation();
+    return !default_table_charset;
+  }
+
+  if (!default_collation.is_contextually_typed_collation())
+  {
+    default_table_charset= default_collation.collation();
+    return false;
+  }
+
+/*
+  if (default_collation.is_contextually_typed_collate_default())
+  {
+    default_table_charset= NULL;
+    return false;
+  }
+*/
+  if (!is_alter)
+  {
+    CHARSET_INFO *cs;
+    Schema_specification_st dbinfo;
+    dbinfo.init();
+    load_db_opt_by_name(thd, db.str, &dbinfo);
+    if (!(cs= dbinfo.default_table_charset))
+      cs= thd->variables.collation_database;
+    default_table_charset= default_collation.resolved_to_character_set(cs);
+    return !default_table_charset;
+  }
+
+  /*
+    These statements are not supported yet:
+      ALTER TABLE t1 (a INT) COLLATE uca1400_ai_ci;
+      ALTER TABLE t1 (a INT) CHARACTER SET DEFAULT COLLATE uca1400_ai_ci;
+      ALTER TABLE t1 (a INT) COLLATE uca1400_ai_ci CHARACTER SET DEFAULT;
+
+    Only these statements are supported:
+      ALTER TABLE t1 CHARACTER SET utf8mb4 COLLATE uca1400_ai_ci;
+      ALTER TABLE t1 COLLATE uca1400_ai_ci CHARACTER SET utf8mb4;
+  */
+  my_error(ER_NOT_SUPPORTED_YET, MYF(0),
+           "ALTER with contextually typed table collations");
+  return true;
+}
+
+
+/*
+  Initialize the "default_table_charset" member
+  from the "default_collation" member
+  for CREATE/ALTER DATABASE statements.
+*/
+bool
+Table_specification_st::resolve_db_charset_and_collation(THD *thd,
+                                                         bool is_alter)
+{
+  DBUG_ASSERT(!default_table_charset);
+
+  if (!default_collation.collation() &&
+      (used_fields & HA_CREATE_USED_DEFAULT_CHARSET))
+  {
+    // CHARACTER SET DEFAULT
+    Lex_collation_st tmp;
+    tmp.set_charset_collate_default(thd->variables.collation_server);
+    default_table_charset= tmp.collation();
+    return false;
+  }
+
+  if (!default_collation.is_contextually_typed_collation())
+  {
+    default_table_charset= default_collation.collation();
+    return false;
+  }
+
+  CHARSET_INFO *cs;
+  if (!is_alter)
+  {
+    cs= thd->variables.collation_server;
+  }
+  else
+  {
+    Schema_specification_st dbinfo;
+    dbinfo.init();
+    load_db_opt_by_name(thd, thd->lex->name.str, &dbinfo);
+    if (!(cs= dbinfo.default_table_charset))
+      cs= thd->variables.collation_server;
+  }
+  default_table_charset= default_collation.resolved_to_character_set(cs);
+  return !default_table_charset;
 }

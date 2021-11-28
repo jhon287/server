@@ -395,6 +395,12 @@ bool Sql_cmd_alter_table::execute(THD *thd)
 
   const bool used_engine= lex->create_info.used_fields & HA_CREATE_USED_ENGINE;
   DBUG_ASSERT((m_storage_engine_name.str != NULL) == used_engine);
+
+  if (lex->create_info.resolve_table_charset_and_collation(thd,
+                                                           first_table->db,
+                                                           true))
+    return true;
+
   if (used_engine)
   {
     if (resolve_storage_engine_with_error(thd, &lex->create_info.db_type,

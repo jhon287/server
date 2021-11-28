@@ -1386,6 +1386,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
         attribute
         attribute_list
         field_def
+        collation_name_explicit_or_context
+        collation_name_explicit_or_context_or_default
+        opt_collate_explicit_or_context_or_default
 
 
 %type <Lex_dyncol_type> opt_dyncol_type dyncol_type
@@ -1577,14 +1580,11 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
                   text_or_password
 
 %type <charset>
-        opt_collate_or_default
         charset_name
         charset_or_alias
         charset_name_or_default
         old_or_new_charset_name
         old_or_new_charset_name_or_default
-        collation_name
-        collation_name_or_default
         opt_load_data_charset
         UNDERSCORE_CHARSET
 
@@ -2363,7 +2363,6 @@ create:
               If the table exists, we should either not create it or replace it
             */
             lex->query_tables->open_strategy= TABLE_LIST::OPEN_STUB;
-            lex->create_info.default_table_charset= NULL;
             lex->name= null_clex_str;
             lex->create_last_non_select_table= lex->last_table();
           }
@@ -2505,9 +2504,7 @@ create:
           }
         | create_or_replace DATABASE opt_if_not_exists ident
           {
-            Lex->create_info.default_table_charset= NULL;
-            Lex->create_info.schema_comment= NULL;
-            Lex->create_info.used_fields= 0;
+            Lex->create_info.init();
           }
           opt_create_database_options
           {
@@ -5495,17 +5492,12 @@ default_charset:
         ;
 
 default_collation:
-          opt_default COLLATE_SYM opt_equal collation_name_or_default
+          opt_default COLLATE_SYM opt_equal
+                      collation_name_explicit_or_context_or_default
           {
-            HA_CREATE_INFO *cinfo= &Lex->create_info;
-            if (unlikely((cinfo->used_fields & HA_CREATE_USED_DEFAULT_CHARSET) &&
-                         cinfo->default_table_charset && $4 &&
-                         !($4= merge_charset_and_collation(cinfo->default_table_charset,
-                                                           $4))))
+            Table_specification_st *cinfo= &Lex->create_info;
+            if (unlikely(cinfo->add_table_option_default_collation($4)))
               MYSQL_YYABORT;
-
-            Lex->create_info.default_table_charset= $4;
-            Lex->create_info.used_fields|= HA_CREATE_USED_DEFAULT_CHARSET;
           }
         ;
 
@@ -6314,10 +6306,7 @@ attribute:
             lex->alter_info.flags|= ALTER_ADD_INDEX;
             $$.init();
           }
-        | COLLATE_SYM collation_name
-          {
-            $$.set_collate_explicit($2);
-          }
+        | COLLATE_SYM collation_name_explicit_or_context { $$= $2; }
         | serial_attribute { $$.init(); }
         ;
 
@@ -6453,23 +6442,23 @@ old_or_new_charset_name_or_default:
         | DEFAULT    { $$=NULL; }
         ;
 
-collation_name:
+collation_name_explicit_or_context:
           ident_or_text
           {
-            if (unlikely(!($$= mysqld_collation_get_by_name($1.str,
-                                                            thd->get_utf8_flag()))))
+            $$= Lex_collation_st::get_by_name($1.str, thd->get_utf8_flag());
+            if (unlikely(!$$.collation()))
               MYSQL_YYABORT;
           }
         ;
 
-opt_collate_or_default:
-          /* empty */ { $$=NULL; }
-        | COLLATE_SYM collation_name_or_default { $$=$2; }
+collation_name_explicit_or_context_or_default:
+          DEFAULT { $$.set_collate_default(); }
+        | collation_name_explicit_or_context
         ;
 
-collation_name_or_default:
-          collation_name { $$=$1; }
-        | DEFAULT    { $$=NULL; }
+opt_collate_explicit_or_context_or_default:
+          /* empty */ { $$.init(); }
+        | COLLATE_SYM collation_name_explicit_or_context_or_default { $$= $2; }
         ;
 
 opt_default:
@@ -6510,12 +6499,13 @@ binary:
           {
             $$.set_charset_collate_default($1);
           }
-        | charset_or_alias COLLATE_SYM collation_name
+        | charset_or_alias COLLATE_SYM collation_name_explicit_or_context
           {
-            if ($$.set_charset_collate_explicit($1, $3))
+            $$= Lex_collation($1, Lex_collation::TYPE_IMPLICIT);
+            if ($$.merge_charset_clause_and_collate_clause($3))
               MYSQL_YYABORT;
           }
-        | COLLATE_SYM collation_name  { $$.set_collate_explicit($2); }
+        | COLLATE_SYM collation_name_explicit_or_context { $$= $2; }
         | COLLATE_SYM DEFAULT         { $$.set_collate_default(); }
         ;
 
@@ -6924,9 +6914,7 @@ alter:
           }
         | ALTER DATABASE ident_or_empty
           {
-            Lex->create_info.default_table_charset= NULL;
-            Lex->create_info.schema_comment= NULL;
-            Lex->create_info.used_fields= 0;
+            Lex->create_info.init();
             if (Lex->main_select_push(true))
               MYSQL_YYABORT;
           }
@@ -6942,8 +6930,7 @@ alter:
           }
         | ALTER DATABASE COMMENT_SYM opt_equal TEXT_STRING_sys
           {
-            Lex->create_info.default_table_charset= NULL;
-            Lex->create_info.used_fields= 0;
+            Lex->create_info.init();
             Lex->create_info.schema_comment= thd->make_clex_string($5);
             Lex->create_info.used_fields|= HA_CREATE_USED_COMMENT;
           }
@@ -7587,19 +7574,10 @@ alter_list_item:
             lex->alter_info.flags|= ALTER_RENAME_INDEX;
           }
         | CONVERT_SYM TO_SYM charset charset_name_or_default
-                             opt_collate_or_default
+                      opt_collate_explicit_or_context_or_default
           {
-            if (!$4)
-            {
-              $4= thd->variables.collation_database;
-            }
-            $5= $5 ? $5 : $4;
-            if (unlikely(!my_charset_same($4,$5)))
-              my_yyabort_error((ER_COLLATION_CHARSET_MISMATCH, MYF(0),
-                                $5->coll_name.str, $4->cs_name.str));
-            if (unlikely(Lex->create_info.add_alter_list_item_convert_to_charset($5)))
+            if (Lex->add_alter_list_item_convert_to_charset(thd, $4, $5))
               MYSQL_YYABORT;
-            Lex->alter_info.flags|= ALTER_CONVERT_TO;
           }
         | create_table_options_space_separated
           {
@@ -9714,7 +9692,7 @@ primary_expr:
 
 string_factor_expr:
           primary_expr
-        | string_factor_expr COLLATE_SYM collation_name
+        | string_factor_expr COLLATE_SYM collation_name_explicit_or_context
           {
             if (unlikely(!($$= new (thd->mem_root) Item_func_set_collation(thd, $1, $3))))
               MYSQL_YYABORT;
@@ -16517,21 +16495,18 @@ option_value_no_option_type:
               thd->parse_error();
             MYSQL_YYABORT;
           }
-        | NAMES_SYM charset_name_or_default opt_collate_or_default
+        | NAMES_SYM charset_name_or_default
+                    opt_collate_explicit_or_context_or_default
           {
+            Lex_collation cs($2 ? $2 :
+                                  global_system_variables.character_set_client,
+                             Lex_collation_st::TYPE_IMPLICIT);
+            if (unlikely(cs.merge_charset_clause_and_collate_clause($3)))
+              MYSQL_YYABORT;
             if (sp_create_assignment_lex(thd, $1.pos()))
               MYSQL_YYABORT;
             LEX *lex= Lex;
-            CHARSET_INFO *cs2;
-            CHARSET_INFO *cs3;
-            cs2= $2 ? $2 : global_system_variables.character_set_client;
-            cs3= $3 ? $3 : cs2;
-            if (unlikely(!my_charset_same(cs2, cs3)))
-            {
-              my_error(ER_COLLATION_CHARSET_MISMATCH, MYF(0),
-                       cs3->coll_name.str, cs2->cs_name.str);
-              MYSQL_YYABORT;
-            }
+            CHARSET_INFO *cs3= cs.collation();
             set_var_collation_client *var;
             var= new (thd->mem_root) set_var_collation_client(cs3, cs3, cs3);
             if (unlikely(var == NULL) ||

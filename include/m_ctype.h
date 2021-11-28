@@ -116,7 +116,7 @@ extern MY_UNICASE_INFO my_unicase_unicode520;
 */
 #define MY_UCA_MAX_WEIGHT_SIZE (8+1)               /* Including 0 terminator */
 #define MY_UCA_CONTRACTION_MAX_WEIGHT_SIZE (2*8+1) /* Including 0 terminator */
-#define MY_UCA_WEIGHT_LEVELS   2
+#define MY_UCA_WEIGHT_LEVELS   3
 
 typedef struct my_contraction_t
 {
@@ -238,6 +238,38 @@ typedef enum enum_repertoire_t
   MY_REPERTOIRE_EXTENDED=    2, /* Extended characters:  U+0080..U+FFFF */
   MY_REPERTOIRE_UNICODE30=   3  /* ASCII | EXTENDED:     U+0000..U+FFFF */
 } my_repertoire_t;
+
+
+/* ID compatibility */
+typedef enum enum_collation_id_type
+{
+  MY_COLLATION_ID_TYPE_PRECISE=          0,
+  MY_COLLATION_ID_TYPE_COMPAT_100800=    1
+} my_collation_id_type_t;
+
+
+/* Level flags */
+#define MY_CS_LEVEL_BIT_PRIMARY    0x00
+#define MY_CS_LEVEL_BIT_SECONDARY  0x01
+#define MY_CS_LEVEL_BIT_TERTIARY   0x02
+#define MY_CS_LEVEL_BIT_QUATERNARY 0x03
+
+#define MY_CS_COLL_LEVELS_S1       (1<<MY_CS_LEVEL_BIT_PRIMARY)
+
+#define MY_CS_COLL_LEVELS_AI_CS    (1<<MY_CS_LEVEL_BIT_PRIMARY)| \
+                                   (1<<MY_CS_LEVEL_BIT_TERTIARY)
+
+#define MY_CS_COLL_LEVELS_S2       (1<<MY_CS_LEVEL_BIT_PRIMARY)| \
+                                   (1<<MY_CS_LEVEL_BIT_SECONDARY)
+
+#define MY_CS_COLL_LEVELS_S3       (1<<MY_CS_LEVEL_BIT_PRIMARY)| \
+                                   (1<<MY_CS_LEVEL_BIT_SECONDARY) | \
+                                   (1<<MY_CS_LEVEL_BIT_TERTIARY)
+
+#define MY_CS_COLL_LEVELS_S4       (1<<MY_CS_LEVEL_BIT_PRIMARY)| \
+                                   (1<<MY_CS_LEVEL_BIT_SECONDARY) | \
+                                   (1<<MY_CS_LEVEL_BIT_TERTIARY)  | \
+                                   (1<<MY_CS_LEVEL_BIT_QUATERNARY)
 
 
 /* Flags for strxfrm */
@@ -440,7 +472,10 @@ struct my_collation_handler_st
   */
   size_t (*min_str)(CHARSET_INFO *cs, uchar *dst, size_t dstlen, size_t nchars);
   size_t (*max_str)(CHARSET_INFO *cs, uchar *dst, size_t dstlen, size_t nchars);
+
+  uint (*get_id)(CHARSET_INFO *cs, my_collation_id_type_t type);
 };
+
 
 extern MY_COLLATION_HANDLER my_collation_8bit_bin_handler;
 extern MY_COLLATION_HANDLER my_collation_8bit_simple_ci_handler;
@@ -938,6 +973,11 @@ struct charset_info_st
   size_t max_str(uchar *dst, size_t dstlen, size_t nchars) const
   {
     return (coll->max_str)(this, dst, dstlen, nchars);
+  }
+
+  uint get_id(my_collation_id_type_t type) const
+  {
+    return (coll->get_id)(this, type);
   }
 
 #endif /* __cplusplus */
@@ -1511,6 +1551,7 @@ extern size_t my_strcspn(CHARSET_INFO *cs, const char *str, const char *end,
 my_bool my_propagate_simple(CHARSET_INFO *cs, const uchar *str, size_t len);
 my_bool my_propagate_complex(CHARSET_INFO *cs, const uchar *str, size_t len);
 
+uint my_ci_get_id_generic(CHARSET_INFO *cs, my_collation_id_type_t type);
 
 typedef struct 
 {
@@ -1525,7 +1566,7 @@ my_repertoire_t my_string_repertoire(CHARSET_INFO *cs,
 my_bool my_charset_is_ascii_based(CHARSET_INFO *cs);
 my_repertoire_t my_charset_repertoire(CHARSET_INFO *cs);
 
-uint my_strxfrm_flag_normalize(uint flags, uint nlevels);
+uint my_strxfrm_flag_normalize(CHARSET_INFO *cs, uint flags);
 void my_strxfrm_desc_and_reverse(uchar *str, uchar *strend,
                                  uint flags, uint level);
 size_t my_strxfrm_pad_desc_and_reverse(CHARSET_INFO *cs,

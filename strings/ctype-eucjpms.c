@@ -67512,7 +67512,8 @@ static MY_COLLATION_HANDLER my_collation_eucjpms_japanese_ci_handler =
     my_hash_sort_simple,
     my_propagate_simple,
     my_min_str_mb_simple,
-    my_max_str_mb_simple
+    my_max_str_mb_simple,
+    my_ci_get_id_generic
 };
 
 
@@ -67531,7 +67532,8 @@ static MY_COLLATION_HANDLER my_collation_eucjpms_bin_handler =
     my_hash_sort_mb_bin,
     my_propagate_simple,
     my_min_str_mb_simple,
-    my_max_str_mb_simple
+    my_max_str_mb_simple,
+    my_ci_get_id_generic
 };
 
 
@@ -67550,7 +67552,8 @@ static MY_COLLATION_HANDLER my_collation_eucjpms_japanese_nopad_ci_handler =
     my_hash_sort_simple_nopad,
     my_propagate_simple,
     my_min_str_mb_simple_nopad,
-    my_max_str_mb_simple
+    my_max_str_mb_simple,
+    my_ci_get_id_generic
 };
 
 
@@ -67569,7 +67572,8 @@ static MY_COLLATION_HANDLER my_collation_eucjpms_nopad_bin_handler =
     my_hash_sort_mb_nopad_bin,
     my_propagate_simple,
     my_min_str_mb_simple_nopad,
-    my_max_str_mb_simple
+    my_max_str_mb_simple,
+    my_ci_get_id_generic
 };
 
 
@@ -67635,7 +67639,7 @@ struct charset_info_st my_charset_eucjpms_japanese_ci=
     0xFEFE,		/* max_sort_char */
     ' ',		/* pad_char      */
     0,                  /* escape_with_backslash_is_dangerous */
-    1,                  /* levels_for_order   */
+    MY_CS_COLL_LEVELS_S1,
     &my_charset_handler,
     &my_collation_eucjpms_japanese_ci_handler
 };
@@ -67668,7 +67672,7 @@ struct charset_info_st my_charset_eucjpms_bin=
     0xFEFE,		/* max_sort_char */
     ' ',		/* pad_char      */
     0,                  /* escape_with_backslash_is_dangerous */
-    1,                  /* levels_for_order   */
+    MY_CS_COLL_LEVELS_S1,
     &my_charset_handler,
     &my_collation_eucjpms_bin_handler
 };
@@ -67701,7 +67705,7 @@ struct charset_info_st my_charset_eucjpms_japanese_nopad_ci=
     0xFEFE,              /* max_sort_char    */
     ' ',                 /* pad_char         */
     0,                   /* escape_with_backslash_is_dangerous */
-    1,                   /* levels_for_order */
+    MY_CS_COLL_LEVELS_S1,
     &my_charset_handler,
     &my_collation_eucjpms_japanese_nopad_ci_handler
 };
@@ -67734,7 +67738,7 @@ struct charset_info_st my_charset_eucjpms_nopad_bin=
     0xFEFE,              /* max_sort_char    */
     ' ',                 /* pad_char         */
     0,                   /* escape_with_backslash_is_dangerous */
-    1,                   /* levels_for_order */
+    MY_CS_COLL_LEVELS_S1,
     &my_charset_handler,
     &my_collation_eucjpms_nopad_bin_handler
 };
